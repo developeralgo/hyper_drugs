@@ -378,6 +378,8 @@ with open("./final.json", "w") as file:
     json.dump(cleaned_drugs, file)
 
 
+######################################                                           ######################################
+
 keys_list = ['current_status', 'monograph_date',
              'product_monograph']
 
@@ -425,14 +427,11 @@ for item in news:
 copied_cleaned_drugs = copy.deepcopy(cleaned_drugs)
 
 
-# for item in copied_cleaned_drugs:
-#     # item["_id"] = str(item["_id"])
-#     item["monograph_date_parsable"] = str(item["monograph_date_parsable"])
-
 with open("./updated_dpd.json", "w") as file:
     json.dump(copied_cleaned_drugs, file)
 
 
+######################################                                           ######################################
 # attempting to categorize drugs into tms
 
 
@@ -568,6 +567,7 @@ for item in cleaned_drugs:
             item["tm"] = result["tm"]
 
     except:
+        item["tm"] = ""
         pass
 
 
@@ -579,6 +579,7 @@ for item in copied_cleaned_drugs:
             print(result)
             item["tm"] = result["tm"]
     except:
+        item["tm"] = ""
         pass
 
 
@@ -586,7 +587,36 @@ with open("./updated_dpd.json", "w") as file:
     json.dump(copied_cleaned_drugs, file)
 
 
-updated_dpd_collection = db["updated_dpd"]
-result = updated_dpd_collection.insert_many(cleaned_drugs)
-# print number of inserted documents
-print(len(result.inserted_ids))
+# updated_dpd_collection = db["updated_dpd"]
+# result = updated_dpd_collection.insert_many(cleaned_drugs)
+# # print number of inserted documents
+# print(len(result.inserted_ids))
+
+
+current_tm_collection = db["new_dpd"]
+
+current_tms = [x for x in current_tm_collection.find({})]
+
+
+bads = []
+
+for item in new_tms:
+    target = [x for x in current_tms if x["tm"] == item["tm"]]
+    # print(item["tm"], len(target))
+    if len(target) == 1:
+        target = target[0]
+        item["chemical_class"] = target["chemical_class"]
+        item["clinical_class"] = target["clinical_class"]
+        item["medscape_classes"] = target["medscape_classes"]
+        item["banks_classes"] = target["banks_classes"]
+        item["ahfs_family"] = target["ahfs_family"]
+    else:
+        bads.append(item["tm"])
+
+
+final_tms_collection = db["final_tms"]
+result = final_tms_collection.insert_many(new_tms)
+print(len((result.inserted_ids)))
+
+
+print(bads)
