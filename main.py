@@ -8,10 +8,11 @@ import copy
 from pathlib import Path
 from collections import defaultdict
 from datetime import datetime
-from dotenv import load_dotenv
 import requests as r
 from bs4 import BeautifulSoup as bs
 from pymongo import MongoClient
+from dotenv import load_dotenv
+load_dotenv()
 mongo_user = os.getenv("MONGO_USER")
 mongo_pass = os.getenv("MONGO_PASS")
 mongo_host = os.getenv("MONGO_HOST")
@@ -19,10 +20,11 @@ mongo_port = os.getenv("MONGO_PORT")
 mongo_db = os.getenv("MONGO_DB")
 
 uri = f"mongodb://{mongo_user}:{mongo_pass}@{mongo_host}:{mongo_port}/?directConnection=true"
-
+print(uri)
 client = MongoClient(uri)
 db = client[mongo_db]
 old_dpd_collection = db["dpd"]
+old_dpds = [x for x in old_dpd_collection.find({})]
 
 
 def get_product_page(drug_code):
@@ -56,15 +58,17 @@ def get_product_page(drug_code):
             final["product_monograph"] = inter["product_monograph"]
             final["monograph_date"] = inter["monograph_date"]
             final["original_market_date"] = inter["original_market_date"]
-            final["monograph_date_parsable"] = datetime.strptime(
-                inter["monograph_date"], "%Y-%m-%d")
+
         except:
             final["current_status"] = ""
             final["product_monograph"] = ""
             final["monograph_date"] = ""
             final["original_market_date"] = ""
-            final["monograph_date_parsable"] = ""
+
         print("success fully fetched monographs for", drug_code)
+        with open(f"file_{drug_code}.json", "w") as file:
+            json.dump(final, file)
+
         return final
     else:
         print(
@@ -375,7 +379,7 @@ with open("./final.json", "w") as file:
 
 
 keys_list = ['current_status', 'monograph_date',
-             'product_monograph', 'monograph_date_parsable']
+             'product_monograph']
 
 news = []
 match_index = defaultdict(list)
@@ -394,14 +398,20 @@ for item in cleaned_drugs:
 
 for item in news:
     try:
+        with open(f"file_{item['drug_code']}.json", "r") as file:
+            result = json.load(file)
+            if result is not None:
+                item["current_status"] = result["current_status"]
+                item["product_monograph"] = result["product_monograph"]
+                item["monograph_date"] = result["monograph_date"]
+    except:
         result = get_product_page(item["drug_code"])
+
         if result is not None:
             item["current_status"] = result["current_status"]
             item["product_monograph"] = result["product_monograph"]
             item["monograph_date"] = result["monograph_date"]
-            item["monograph_date_parsable"] = result["monograph_date_parsable"]
-    except:
-        print(item["drug_code"], "failed")
+            # item["monograph_date_parsable"] = result["monograph_date_parsable"]
 
 
 for item in news:
@@ -412,17 +422,12 @@ for item in news:
             target[element] = item[element]
 
 
-updated_dpd_collection = db["updated_dpd"]
-result = updated_dpd_collection.insert_many(cleaned_drugs)
-print(result)
-
-
 copied_cleaned_drugs = copy.deepcopy(cleaned_drugs)
 
 
-for item in copied_cleaned_drugs:
-    item["_id"] = str(item["_id"])
-    item["monograph_date_parsable"] = str(item["monograph_date_parsable"])
+# for item in copied_cleaned_drugs:
+#     # item["_id"] = str(item["_id"])
+#     item["monograph_date_parsable"] = str(item["monograph_date_parsable"])
 
 with open("./updated_dpd.json", "w") as file:
     json.dump(copied_cleaned_drugs, file)
@@ -467,7 +472,7 @@ for item in ings:
 cleaned = [x for x in ings if x["det"] == True]
 
 
-with open("./data_artifacts/drugs_ccd.json", "r") as file:
+with open("./drugs_ccd.json", "r") as file:
     ccds = json.load(file)
 
 cleaned_ccds = [x for x in ccds if len(x["tm"].split(" ")) == 1]
@@ -532,7 +537,56 @@ new_tms = []
 for item in unique_tms:
     ing_target = [x["text"] for x in ings if x["tm"] == item]
     family = [x for x in singles if x["list_ingredients"][0] in ing_target]
+    for element in family:
+        element["tm"] = item
     inter = {}
     inter["tm"] = item
     inter["family"] = family
     new_tms.append(inter)
+
+
+tms_conversion_dict = {}
+
+
+for item in new_tms:
+    for element in item["family"]:
+        inter = {"din": element["din"],
+                 "drug_code": element["drug_code"], "list_ingredients": element["list_ingredients"], "tm": element["tm"]}
+        tms_conversion_dict[element["din"]] = inter
+
+
+with open("./tms_conversion.json", "w") as file:
+    json.dump(tms_conversion_dict, file)
+
+
+for item in cleaned_drugs:
+    item["series"] = 1
+    try:
+        result = tms_conversion_dict[item["din"]]
+        if result is not None:
+            print(result)
+            item["tm"] = result["tm"]
+
+    except:
+        pass
+
+
+for item in copied_cleaned_drugs:
+    item["series"] = 1
+    try:
+        result = tms_conversion_dict[item["din"]]
+        if result is not None:
+            print(result)
+            item["tm"] = result["tm"]
+    except:
+        pass
+
+
+with open("./updated_dpd.json", "w") as file:
+    json.dump(copied_cleaned_drugs, file)
+
+
+updated_dpd_collection = db["updated_dpd"]
+result = updated_dpd_collection.insert_many(cleaned_drugs)
+# print number of inserted documents
+print(len(result.inserted_ids))
